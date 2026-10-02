@@ -6,6 +6,8 @@ import { OtpService, OTP_MAX_ATTEMPTS } from './otp.service.js';
 interface Row {
   id: string;
   channel: string;
+  purpose: string;
+  userId: string | null;
   destination: string;
   codeHash: string;
   attempts: number;
@@ -21,6 +23,8 @@ function fakePrisma() {
   const match = (r: Row, w: any) =>
     (!w.channel || r.channel === w.channel) &&
     (!w.destination || r.destination === w.destination) &&
+    (w.purpose === undefined || r.purpose === w.purpose) &&
+    (w.userId === undefined || r.userId === w.userId) &&
     (w.id === undefined || (w.id.not !== undefined ? r.id !== w.id.not : r.id === w.id)) &&
     (w.consumedAt !== null || r.consumedAt === null) &&
     (w.attempts?.lt === undefined || r.attempts < w.attempts.lt) &&
@@ -154,6 +158,46 @@ describe('OtpService', () => {
     await expect(service.verify('EMAIL', 'a@b.com', sent[0])).resolves.toEqual({
       destination: 'a@b.com',
     });
+  });
+});
+
+describe('OtpService scopes', () => {
+  let sent: string[];
+  let service: OtpService;
+  const change = (userId: string) => ({ purpose: 'EMAIL_CHANGE' as const, userId });
+
+  beforeEach(() => {
+    sent = [];
+    const sender: OtpSender = {
+      channel: 'EMAIL',
+      normalize: (d) => d.trim().toLowerCase(),
+      send: async (_d, code) => void sent.push(code),
+    };
+    service = new OtpService(fakePrisma() as any, { getOrThrow: () => 'secret' } as any, [sender]);
+  });
+
+  it('an email-change code cannot be used to sign in', async () => {
+    await service.request('EMAIL', 'x@y.com', { scope: change('u1') });
+    await expect(service.verify('EMAIL', 'x@y.com', sent[0])).rejects.toThrow();
+    // ...and the failed login attempt did not burn it.
+    await expect(service.verify('EMAIL', 'x@y.com', sent[0], change('u1'))).resolves.toBeDefined();
+  });
+
+  it('a login code cannot be used to change an email', async () => {
+    await service.request('EMAIL', 'x@y.com');
+    await expect(service.verify('EMAIL', 'x@y.com', sent[0], change('u1'))).rejects.toThrow();
+    await expect(service.verify('EMAIL', 'x@y.com', sent[0])).resolves.toBeDefined();
+  });
+
+  it('an email-change code is bound to the requesting user', async () => {
+    await service.request('EMAIL', 'x@y.com', { scope: change('u1') });
+    await expect(service.verify('EMAIL', 'x@y.com', sent[0], change('u2'))).rejects.toThrow();
+  });
+
+  it('an email-change request neither cancels nor rate-limits a pending login code', async () => {
+    await service.request('EMAIL', 'x@y.com');
+    await service.request('EMAIL', 'x@y.com', { scope: change('u1') });
+    await expect(service.verify('EMAIL', 'x@y.com', sent[0])).resolves.toBeDefined();
   });
 });
 

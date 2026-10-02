@@ -18,6 +18,18 @@ enum OtpChannel {
   SMS
 }
 
+// What a code may be used for; a code issued for one purpose never verifies another.
+enum OtpPurpose {
+  LOGIN
+  EMAIL_CHANGE
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
 model User {
   id              String     @id @default(cuid())
   email           String?    @unique
@@ -26,12 +38,16 @@ model User {
   phoneVerifiedAt DateTime?
   name            String?
   avatarUrl       String?
-  status          UserStatus @default(ACTIVE)
+  avatarKey       String?
+  dateOfBirth     DateTime?  @db.Date
+  gender          Gender?
+  status         UserStatus @default(ACTIVE)
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
-  identities Identity[]
-  sessions   Session[]
+  identities    Identity[]
+  sessions      Session[]
+  otpChallenges OtpChallenge[]
 }
 
 // One row per login method linked to a user (email, google, github, phone).
@@ -51,7 +67,10 @@ model Identity {
 model OtpChallenge {
   id          String     @id @default(cuid())
   channel     OtpChannel
+  purpose     OtpPurpose @default(LOGIN)
   destination String
+  // Set for EMAIL_CHANGE: only the user who requested the code can redeem it.
+  userId      String?
   codeHash    String
   attempts    Int        @default(0)
   expiresAt   DateTime
@@ -59,7 +78,10 @@ model OtpChallenge {
   ip          String?
   createdAt   DateTime   @default(now())
 
-  @@index([channel, destination, createdAt])
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([channel, destination, purpose, userId, createdAt])
+  @@index([userId])
 }
 
 model Session {
@@ -75,5 +97,6 @@ model Session {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
+  @@index([userId, createdAt, id])
+  @@index([expiresAt])
 }

@@ -19,5 +19,17 @@ services:
       timeout: 3s
       retries: 10
 
+  # Browser UI for the db: http://localhost:8081 (localhost-only; pgweb has no auth).
+  pgweb:
+    image: sosedoff/pgweb:latest
+    environment:
+      PGWEB_DATABASE_URL: postgres://pabbar:pabbar@db:5432/pabbar?sslmode=disable
+    ports:
+      - '127.0.0.1:8081:8081'
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   pabbar-db:

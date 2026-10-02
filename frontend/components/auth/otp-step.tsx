@@ -18,9 +18,11 @@ interface OtpStepProps {
   onVerify: (code: string) => Promise<void>;
   onResend: () => Promise<number>;
   onBack: () => void;
+  submitLabel?: string;
+  backLabel?: string;
 }
 
-export function OtpStep({ email, resendIn, onVerify, onResend, onBack }: OtpStepProps) {
+export function OtpStep({ email, resendIn, onVerify, onResend, onBack, submitLabel = "Verify and sign in", backLabel = "Use a different email" }: OtpStepProps) {
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -95,12 +97,12 @@ export function OtpStep({ email, resendIn, onVerify, onResend, onBack }: OtpStep
 
       <Button type="submit" size="lg" disabled={pending || code.length < 6} className="w-full">
         {pending && <Spinner />}
-        Verify and sign in
+        {submitLabel}
       </Button>
 
       <div className="flex items-center justify-between">
         <Button type="button" variant="link" className="px-0" onClick={onBack}>
-          Use a different email
+          {backLabel}
         </Button>
         {seconds > 0 ? (
           <span className="text-muted-foreground">Resend code in {seconds}s</span>

@@ -8,6 +8,7 @@ import { OAUTH_PROVIDERS } from './oauth/oauth-provider.js';
 import { OAuthService } from './oauth/oauth.service.js';
 import { EmailOtpSender, OTP_SENDERS } from './otp/otp-sender.js';
 import { OtpService } from './otp/otp.service.js';
+import { SessionCleanupService } from './session/session-cleanup.service.js';
 import { SessionGuard } from './session/session.guard.js';
 import { SessionService } from './session/session.service.js';
 
@@ -17,6 +18,7 @@ import { SessionService } from './session/session.service.js';
   providers: [
     OtpService,
     SessionService,
+    SessionCleanupService,
     SessionGuard,
     OAuthService,
     GoogleProvider,

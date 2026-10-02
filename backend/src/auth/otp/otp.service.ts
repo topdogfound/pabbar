@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
+import type { OtpPurpose } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { OTP_SENDERS, type OtpChannelName, type OtpSender } from './otp-sender.js';
 
@@ -15,6 +16,18 @@ export const OTP_TTL_MINUTES = 10;
 export const OTP_RESEND_SECONDS = 30;
 export const OTP_MAX_ATTEMPTS = 5;
 const OTP_MAX_PER_HOUR = 10;
+
+/**
+ * What a code is for. Codes are scoped to (channel, destination, purpose, user):
+ * an EMAIL_CHANGE code can't sign anyone in, a login code can't change an email,
+ * and one scope's requests never cancel or rate-limit another scope's codes.
+ */
+export type OtpScope = { purpose: 'LOGIN' } | { purpose: 'EMAIL_CHANGE'; userId: string };
+const LOGIN: OtpScope = { purpose: 'LOGIN' };
+
+function scopeWhere(scope: OtpScope): { purpose: OtpPurpose; userId: string | null } {
+  return { purpose: scope.purpose, userId: scope.purpose === 'LOGIN' ? null : scope.userId };
+}
 
 @Injectable()
 export class OtpService {
@@ -31,13 +44,19 @@ export class OtpService {
   }
 
   /** Issues a code. Returns the normalized destination and resend delay. */
-  async request(channel: OtpChannelName, rawDestination: string, ip?: string) {
+  async request(
+    channel: OtpChannelName,
+    rawDestination: string,
+    opts: { scope?: OtpScope; ip?: string } = {},
+  ) {
     const sender = this.sender(channel);
     const destination = sender.normalize(rawDestination);
+    const scope = opts.scope ?? LOGIN;
+    const scoped = { channel, destination, ...scopeWhere(scope) };
     const now = new Date();
 
     const latest = await this.prisma.otpChallenge.findFirst({
-      where: { channel, destination },
+      where: scoped,
       orderBy: { createdAt: 'desc' },
     });
     if (latest) {
@@ -53,11 +72,7 @@ export class OtpService {
     }
 
     const lastHour = await this.prisma.otpChallenge.count({
-      where: {
-        channel,
-        destination,
-        createdAt: { gt: new Date(now.getTime() - 3600_000) },
-      },
+      where: { ...scoped, createdAt: { gt: new Date(now.getTime() - 3600_000) } },
     });
     if (lastHour >= OTP_MAX_PER_HOUR) {
       throw new HttpException(
@@ -70,11 +85,10 @@ export class OtpService {
 
     const challenge = await this.prisma.otpChallenge.create({
       data: {
-        channel,
-        destination,
-        codeHash: this.hash(destination, code),
+        ...scoped,
+        codeHash: this.hash(scope, destination, code),
         expiresAt: new Date(now.getTime() + OTP_TTL_MINUTES * 60_000),
-        ip,
+        ip: opts.ip,
       },
     });
 
@@ -87,21 +101,26 @@ export class OtpService {
       throw new ServiceUnavailableException('Could not send the code. Please try again.');
     }
 
-    // Only the newest code is ever valid.
+    // Only the newest code (per scope) is ever valid.
     await this.prisma.otpChallenge.updateMany({
-      where: { channel, destination, consumedAt: null, id: { not: challenge.id } },
+      where: { ...scoped, consumedAt: null, id: { not: challenge.id } },
       data: { consumedAt: now },
     });
     return { destination, resendIn: OTP_RESEND_SECONDS };
   }
 
   /** Verifies a code, consuming it on success. Returns the normalized destination. */
-  async verify(channel: OtpChannelName, rawDestination: string, code: string) {
+  async verify(
+    channel: OtpChannelName,
+    rawDestination: string,
+    code: string,
+    scope: OtpScope = LOGIN,
+  ) {
     const destination = this.sender(channel).normalize(rawDestination);
     const invalid = new BadRequestException('Invalid or expired code.');
 
     const challenge = await this.prisma.otpChallenge.findFirst({
-      where: { channel, destination, consumedAt: null },
+      where: { channel, destination, ...scopeWhere(scope), consumedAt: null },
       orderBy: { createdAt: 'desc' },
     });
     if (
@@ -120,7 +139,7 @@ export class OtpService {
     if (count === 0) throw invalid;
 
     const expected = Buffer.from(challenge.codeHash);
-    const actual = Buffer.from(this.hash(destination, code));
+    const actual = Buffer.from(this.hash(scope, destination, code));
     if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
       throw invalid;
     }
@@ -140,7 +159,11 @@ export class OtpService {
     return sender;
   }
 
-  private hash(destination: string, code: string) {
-    return createHmac('sha256', this.secret).update(`${destination}:${code}`).digest('hex');
+  /** Binds the code to its scope too, so a row can't be redeemed under another one. */
+  private hash(scope: OtpScope, destination: string, code: string) {
+    const { purpose, userId } = scopeWhere(scope);
+    return createHmac('sha256', this.secret)
+      .update(`${purpose}:${userId ?? ''}:${destination}:${code}`)
+      .digest('hex');
   }
 }
