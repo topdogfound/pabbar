@@ -1,0 +1,23 @@
+# Local dev services for pabbar (does not touch other projects' containers).
+# `name` pins the project name so the existing pabbar_pabbar-db volume is reused.
+name: pabbar
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: pabbar
+      POSTGRES_PASSWORD: pabbar
+      POSTGRES_DB: pabbar
+    ports:
+      - '5433:5432'
+    volumes:
+      - pabbar-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U pabbar -d pabbar']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pabbar-db:

@@ -1,0 +1,79 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum OtpChannel {
+  EMAIL
+  SMS
+}
+
+model User {
+  id              String     @id @default(cuid())
+  email           String?    @unique
+  emailVerifiedAt DateTime?
+  phone           String?    @unique
+  phoneVerifiedAt DateTime?
+  name            String?
+  avatarUrl       String?
+  status          UserStatus @default(ACTIVE)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  identities Identity[]
+  sessions   Session[]
+}
+
+// One row per login method linked to a user (email, google, github, phone).
+model Identity {
+  id             String   @id @default(cuid())
+  userId         String
+  provider       String
+  providerUserId String
+  createdAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@index([userId])
+}
+
+model OtpChallenge {
+  id          String     @id @default(cuid())
+  channel     OtpChannel
+  destination String
+  codeHash    String
+  attempts    Int        @default(0)
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  ip          String?
+  createdAt   DateTime   @default(now())
+
+  @@index([channel, destination, createdAt])
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  userId     String
+  tokenHash  String   @unique
+  remember   Boolean  @default(false)
+  userAgent  String?
+  ip         String?
+  expiresAt  DateTime
+  lastUsedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
