@@ -13,7 +13,7 @@
     "docker:logs": "docker compose -f docker/docker-compose.yml logs -f",
     "docker:reset": "docker compose -f docker/docker-compose.yml down -v",
 
-    "install:all": "npm ci && npm --prefix backend ci && npm --prefix frontend ci",
+    "install:all": "npm ci && npm --prefix backend ci && npm --prefix frontend ci && npm --prefix backend run prisma:generate",
     "build": "npm --prefix backend run build && npm --prefix frontend run build",
     "lint": "npm --prefix backend run lint && npm --prefix frontend run lint",
     "test": "npm --prefix backend run test"

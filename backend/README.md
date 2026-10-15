@@ -9,6 +9,7 @@ npm run start:dev   # watch mode
 npm run test        # unit tests (Vitest)
 npm run test:e2e    # e2e tests
 npm run lint        # oxlint
+npm run prisma:generate   # regenerate the client after install or schema changes
 npx prisma migrate dev
 ```
 
