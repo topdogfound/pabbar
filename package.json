@@ -1,0 +1,24 @@
+{
+  "name": "pabbar",
+  "private": true,
+  "description": "Root orchestrator for the pabbar backend, frontend and Docker services.",
+  "scripts": {
+    "dev": "npm run docker:up && npm run dev:apps",
+    "dev:apps": "concurrently -k -n api,web -c cyan,magenta \"npm --prefix backend run start:dev\" \"npm --prefix frontend run dev\"",
+    "dev:be": "npm run docker:up && npm --prefix backend run start:dev",
+    "dev:fe": "npm --prefix frontend run dev",
+
+    "docker:up": "docker compose -f docker/docker-compose.yml up -d --wait",
+    "docker:down": "docker compose -f docker/docker-compose.yml down",
+    "docker:logs": "docker compose -f docker/docker-compose.yml logs -f",
+    "docker:reset": "docker compose -f docker/docker-compose.yml down -v",
+
+    "install:all": "npm ci && npm --prefix backend ci && npm --prefix frontend ci",
+    "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "lint": "npm --prefix backend run lint && npm --prefix frontend run lint",
+    "test": "npm --prefix backend run test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

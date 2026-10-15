@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: pabbar
       POSTGRES_DB: pabbar
     ports:
-      - '5433:5432'
+      - '127.0.0.1:4712:5432'
     volumes:
       - pabbar-db:/var/lib/postgresql/data
     healthcheck:
@@ -19,17 +19,53 @@ services:
       timeout: 3s
       retries: 10
 
-  # Browser UI for the db: http://localhost:8081 (localhost-only; pgweb has no auth).
+  # Session cache + distributed rate limiting. Backend: REDIS_URL=redis://localhost:4713
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '127.0.0.1:4713:6379'
+    volumes:
+      - pabbar-redis:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Browser UI for the db: http://localhost:4714 (localhost-only; pgweb has no auth).
   pgweb:
     image: sosedoff/pgweb:latest
     environment:
       PGWEB_DATABASE_URL: postgres://pabbar:pabbar@db:5432/pabbar?sslmode=disable
     ports:
-      - '127.0.0.1:8081:8081'
+      - '127.0.0.1:4714:8081'
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
 
+  # Dev mail catcher: SMTP on :4716, web inbox at http://localhost:4715 (localhost-only, no auth).
+  # Nothing is delivered to real addresses. Backend: SMTP_HOST=localhost SMTP_PORT=4716
+  mailpit:
+    image: axllent/mailpit:latest
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      MP_MAX_MESSAGES: 5000
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    ports:
+      - '127.0.0.1:4716:1025'
+      - '127.0.0.1:4715:8025'
+    volumes:
+      - pabbar-mail:/data
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
 volumes:
   pabbar-db:
+  pabbar-redis:
+  pabbar-mail:

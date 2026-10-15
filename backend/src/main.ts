@@ -27,10 +27,10 @@ async function bootstrap() {
   });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.enableCors({
-    origin: config.get<string>('FRONTEND_URL') ?? 'http://localhost:3000',
+    origin: config.get<string>('FRONTEND_URL') ?? 'http://localhost:4710',
     credentials: true,
   });
 
-  await app.listen(config.get<number>('PORT') ?? 4000);
+  await app.listen(config.get<number>('PORT') ?? 4711);
 }
 await bootstrap();

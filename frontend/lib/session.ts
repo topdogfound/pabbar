@@ -9,7 +9,7 @@ export const getSession = cache(async (): Promise<PublicUser | null> => {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
 
-  const backend = process.env.BACKEND_URL ?? "http://localhost:4000";
+  const backend = process.env.BACKEND_URL ?? "http://localhost:4711";
   try {
     const res = await fetch(`${backend}/auth/me`, {
       headers: { cookie: `${SESSION_COOKIE}=${token}` },
@@ -27,7 +27,7 @@ export const getSessions = cache(async (limit = 20): Promise<SessionsPage | null
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
 
-  const backend = process.env.BACKEND_URL ?? "http://localhost:4000";
+  const backend = process.env.BACKEND_URL ?? "http://localhost:4711";
   try {
     const res = await fetch(`${backend}/auth/sessions?limit=${limit}`, {
       headers: { cookie: `${SESSION_COOKIE}=${token}` },

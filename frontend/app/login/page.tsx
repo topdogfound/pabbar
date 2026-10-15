@@ -7,7 +7,7 @@ import { getSession } from "@/lib/session";
 export const metadata = { title: "Log in" };
 
 async function getMethods(): Promise<AuthMethods | undefined> {
-  const backend = process.env.BACKEND_URL ?? "http://localhost:4000";
+  const backend = process.env.BACKEND_URL ?? "http://localhost:4711";
   try {
     const res = await fetch(`${backend}/auth/config`, { cache: "no-store" });
     if (!res.ok) return undefined;

@@ -1,12 +1,10 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useState } from "react";
 import { MoonIcon, MonitorIcon, SunIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { toast } from "@/components/ui/toast";
 import {
   FONTS,
   FONT_LABELS,
@@ -14,7 +12,6 @@ import {
   PRESETS,
   RADII,
   applyTheme,
-  encodeTheme,
   resetTheme,
   shuffleTheme,
   DEFAULT_THEME,
@@ -24,8 +21,6 @@ import {
   type ThemePrefs,
 } from "@/lib/theme";
 import { cn } from "@/lib/utils";
-
-const ImportDialog = dynamic(() => import("./import-dialog").then((m) => m.ImportDialog));
 
 const MODE_OPTIONS: { value: Mode; label: string; icon: typeof SunIcon }[] = [
   { value: "light", label: "Light", icon: SunIcon },
@@ -71,7 +66,6 @@ function FontSelect({ label, value: raw, onChange }: { label: string; value?: Fo
 export function ThemeSettings({ initial }: { initial: ThemePrefs }) {
   // `initial` comes from the cookie, which the pre-paint script already applied.
   const [prefs, setPrefs] = useState<ThemePrefs>(initial);
-  const [importOpen, setImportOpen] = useState(false);
 
   const set = (next: ThemePrefs) => {
     setPrefs(next);
@@ -121,24 +115,7 @@ export function ThemeSettings({ initial }: { initial: ThemePrefs }) {
           <Button variant="outline" onClick={() => set(shuffleTheme(prefs.mode))}>
             Shuffle
           </Button>
-          <Button
-            variant="outline"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(`v1.${encodeTheme(prefs)}`);
-                toast.add({ type: "success", title: "Preset code copied" });
-              } catch {
-                toast.add({ type: "error", title: "Could not copy the code" });
-              }
-            }}
-          >
-            Copy code
-          </Button>
-          <Button variant="outline" onClick={() => setImportOpen(true)}>
-            Import code
-          </Button>
         </div>
-        {importOpen && <ImportDialog open onOpenChange={setImportOpen} onImport={set} />}
       </Section>
 
       <Section title="Radius" description="How rounded corners are across the app.">

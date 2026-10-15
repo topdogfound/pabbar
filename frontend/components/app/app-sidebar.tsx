@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpenIcon, FolderOpenIcon, SquaresFourIcon } from "@phosphor-icons/react";
+import { SquaresFourIcon } from "@phosphor-icons/react";
 import {
   Sidebar,
   SidebarContent,
@@ -20,11 +20,6 @@ import type { PublicUser } from "@/lib/api";
 import { NavUser } from "./nav-user";
 
 const navItems = [{ title: "Dashboard", href: "/dashboard", icon: SquaresFourIcon }];
-
-const secondaryItems = [
-  { title: "Repository", href: "#", icon: FolderOpenIcon },
-  { title: "Documentation", href: "#", icon: BookOpenIcon },
-];
 
 export function AppSidebar({ user }: { user: PublicUser }) {
   const pathname = usePathname();
@@ -55,20 +50,6 @@ export function AppSidebar({ user }: { user: PublicUser }) {
                     isActive={pathname.startsWith(item.href)}
                     render={<Link href={item.href} />}
                   >
-                    <item.icon />
-                    <span>{item.title}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-        <SidebarGroup className="mt-auto">
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {secondaryItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton tooltip={item.title} render={<a href={item.href} />}>
                     <item.icon />
                     <span>{item.title}</span>
                   </SidebarMenuButton>

@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 
-const backendUrl = process.env.BACKEND_URL ?? "http://localhost:4000";
+const backendUrl = process.env.BACKEND_URL ?? "http://localhost:4711";
 
 const assetsBase = new URL(process.env.ASSETS_BASE_URL ?? backendUrl);
 
