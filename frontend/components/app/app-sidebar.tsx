@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { SquaresFourIcon } from "@phosphor-icons/react";
+import { ShieldCheckIcon, SquaresFourIcon } from "@phosphor-icons/react";
 import {
   Sidebar,
   SidebarContent,
@@ -21,7 +21,7 @@ import { NavUser } from "./nav-user";
 
 const navItems = [{ title: "Dashboard", href: "/dashboard", icon: SquaresFourIcon }];
 
-export function AppSidebar({ user }: { user: PublicUser }) {
+export function AppSidebar({ user, showAdmin = false }: { user: PublicUser; showAdmin?: boolean }) {
   const pathname = usePathname();
 
   return (
@@ -58,6 +58,21 @@ export function AppSidebar({ user }: { user: PublicUser }) {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        {showAdmin && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Administration</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton tooltip="Admin console" render={<Link href="/admin" />}>
+                    <ShieldCheckIcon />
+                    <span>Admin console</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
       <SidebarFooter>
         <NavUser user={user} />

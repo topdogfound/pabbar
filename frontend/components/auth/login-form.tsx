@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { LockKeyIcon } from "@phosphor-icons/react";
 import { toast } from "@/components/ui/toast";
 import { ApiError, authApi, type AuthMethods } from "@/lib/api";
+import { safeNext } from "@/lib/safe-next";
 import { EmailStep } from "./email-step";
 import { OtpStep } from "./otp-step";
 import { SocialButtons } from "./social-buttons";
@@ -83,7 +84,7 @@ export function LoginForm({ methods = FALLBACK_METHODS }: { methods?: AuthMethod
           onResend={() => sendCode(step.email)}
           onVerify={async (code) => {
             await authApi.verifyOtp(step.email, code, remember);
-            router.replace("/");
+            router.replace(safeNext(params.get("next")) ?? "/");
             router.refresh();
           }}
         />

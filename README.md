@@ -76,6 +76,8 @@ Copy the `.env.example` files (see Quick start); defaults work locally. Main var
 | `SESSION_TTL_DAYS` / `SESSION_REMEMBER_TTL_DAYS` | backend | `1` / `30` | |
 | `AUTH_GOOGLE_ENABLED`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | backend | off | Enables Google login |
 | `AUTH_GITHUB_ENABLED`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | backend | off | Enables GitHub login |
+| `PLATFORM_ADMIN_EMAILS` | backend | unset | Comma-separated emails that become **Super Admin** on login (see [Admin console](#admin-console)) |
+| `AUDIT_EXPORT_MAX_ROWS` | backend | `100000` | Row cap for one audit CSV export |
 | `UPLOADS_DIR` | backend | | Avatar storage directory |
 | `BACKEND_URL` | frontend | `http://localhost:4711` | Where the frontend reaches the API |
 | `ASSETS_BASE_URL` | frontend | `BACKEND_URL` | Base URL for uploaded images |
@@ -147,6 +149,10 @@ Codes expire after 10 minutes, allow 5 attempts, and can be resent after 30 seco
 | `Identity` | Login methods per user (email, google, github, phone) |
 | `Session` | Hashed token, expiry, user agent, IP, remember flag |
 | `OtpChallenge` | Hashed code, purpose, attempts, expiry |
+| `Organization`, `Membership`, `MembershipRole` | Tenants, who belongs to them, and the roles they hold there |
+| `Role`, `RolePermission`, `PlatformRoleAssignment` | System and custom roles, their permission strings, platform staff assignments |
+| `Invitation` | Hashed invite token, role, expiry, accepted/revoked |
+| `AuditLog` | Append-only record of admin actions (a DB trigger rejects `UPDATE`) |
 
 ## API
 
@@ -167,7 +173,62 @@ All routes are under `/auth`. 🔒 = needs a valid session cookie.
 | `DELETE` | `/auth/sessions/others` | ✅ | Sign out other devices |
 | `POST` | `/auth/logout` | ✅ | Sign out |
 
-Frontend routes: `/` and `/login` are public. `/dashboard` and `/settings` (`profile`, `security`, `appearance`) need the cookie.
+Frontend routes: `/`, `/login` and `/invite/:token` are public. `/dashboard`, `/settings` (`profile`, `security`, `appearance`) and `/admin` need the cookie (the console additionally needs admin access).
+
+## Admin console
+
+A multi-tenant admin panel at `/admin`. **Platform** operators run the product; each **organization** has its own admins, roles and audit trail. The same screens serve both: the URL scope is `/admin/platform/...` or `/admin/<org-slug>/...`.
+
+**First Super Admin.** Add your email to `backend/.env`, restart, and sign in:
+
+```bash
+PLATFORM_ADMIN_EMAILS=you@example.com
+```
+
+An **Admin console** link then appears in the sidebar. From `/admin/platform/orgs` create an organization and name its Owner; the Owner can invite everyone else.
+
+**Permissions** are `resource:action` strings defined in [backend/src/rbac/catalog.ts](backend/src/rbac/catalog.ts) (the single source of truth; the DB stores only role to string). Access is deny-by-default and additive.
+
+| Role (system, read-only) | Scope | Can |
+| --- | --- | --- |
+| Super Admin | platform | Everything, in every organization |
+| Support | platform | Read users and audit, revoke sessions, impersonate read-only |
+| Auditor | platform / org | Read-only, plus audit export |
+| Owner | org | Everything in the org; the only role that can rename it or hand out Owner |
+| Admin | org | People, roles, sessions, security (not rename, not Owner) |
+| Manager | org | Invite people and assign roles up to their own level |
+| Member | org | No console access |
+
+A platform role's org-capable permissions apply inside every org (Support can revoke sessions anywhere); platform-only permissions (impersonation, org lifecycle) never do. Orgs can add **custom roles** from a permission matrix.
+
+**Guardrails** (all enforced by the API, mirrored in the UI):
+
+- **No escalation:** you can only grant, edit or hand out what you hold yourself, and only manage people whose access is a subset of yours.
+- **Last Owner / last Super Admin** cannot be removed, suspended or demoted. Nobody can change their own roles.
+- **System roles are read-only**; clone them to customize. A role in use cannot be deleted.
+- **Tenant isolation:** no `admin:access` in a scope answers `404`, not `403`, so other tenants' consoles are not revealed.
+- **Reasons:** suspend, remove, impersonate and delete require a reason, stored in the audit log.
+- **Impersonation** is platform-only, read-only, time-boxed (5 to 60 min), never against platform staff, blocked from the admin console, shown by a banner, and audited at start and stop. The operator's own session is parked in a cookie and restored on stop.
+- **Audit log** rows are written in the same transaction as the change, carry actor snapshots (they outlive users), and cannot be updated.
+
+**Scalability notes.** Permission checks resolve through Redis under a version stamp: editing a role or membership bumps one counter per org, invalidating every cached entry at once without enumerating users. Lists use keyset cursors on indexed columns (no `OFFSET`, no `COUNT(*)`; dashboard counts are capped and shown as `10,000+`); user search uses trigram indexes; the audit export streams in pages.
+
+| Method | Path | Needs | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/admin/me` | session | Scopes you can open |
+| `GET` | `/admin/catalog` | session | Permission catalog |
+| `GET` | `/admin/:scope/context`, `/overview` | `admin:access` | Your permissions here; stats |
+| `GET` / `POST` / `DELETE` | `/admin/:scope/users[/:id]` + `suspend`, `restore`, `roles`, `sessions`, `impersonate` | `users:*`, `roles:assign`, `sessions:*` | Directory and actions |
+| `GET` / `POST` / `PATCH` / `DELETE` | `/admin/:scope/roles[/:id]` | `roles:*` | Roles and permission sets |
+| `GET` / `POST` / `DELETE` | `/admin/:scope/invitations[/:id]` | `users:read`, `users:invite` | Invitations (org scope) |
+| `GET` | `/admin/:scope/audit`, `/audit/export` | `audit:read`, `audit:export` | Log and CSV |
+| `GET` / `DELETE` | `/admin/:scope/sessions[/:id]` | `sessions:*` | Live sessions |
+| `GET` / `PATCH` | `/admin/:scope/organization`, `/security` | `org:*`, `security:*` | Org settings, invite policy |
+| `GET` / `POST` / `PUT` | `/admin/platform/orgs[/:id/status]` | `orgs:*` | Organization directory |
+| `GET` / `POST` | `/invitations/:token[/accept]` | none / session | Invitee side |
+| `POST` | `/auth/impersonation/stop` | session | End impersonation |
+
+**Tests.** `npm run test` (from `backend/`) runs unit tests. `npm run test:e2e` boots the real app against a throwaway `pabbar_test` database and Redis DB 1 (never your dev data) and checks tenant isolation, escalation, last-owner rules, impersonation, audit scoping and cache invalidation. It needs the Docker services up.
 
 ## Project structure
 
@@ -180,13 +241,16 @@ pabbar/
 │   └── src/
 │       ├── auth/           # controller, otp/, oauth/, session/, account/, dto/
 │       ├── users/          # user service, avatar processing
+│       ├── rbac/           # permission catalog, access resolution + cache, PermissionsGuard
+│       ├── audit/          # append-only audit service
+│       ├── admin/          # /admin/:scope/* controllers + services (users, roles, orgs, …)
 │       ├── mail/           # nodemailer wrapper
 │       ├── storage/        # avatar storage (local; swappable)
 │       ├── redis/          # client + throttler storage
 │       └── prisma/         # PrismaService
 └── frontend/               # Next.js app
-    ├── app/                # (app)/ protected: dashboard, settings/*; login/; page.tsx
-    ├── components/         # app, auth, landing, settings, theme, ui
+    ├── app/                # (app)/ protected: dashboard, settings/*; admin/[scope]/*; invite/[token]; login/; page.tsx
+    ├── components/         # admin, app, auth, landing, settings, theme, ui
     ├── lib/                # api client, session, theme helpers
     └── proxy.ts            # cookie gate
 ```

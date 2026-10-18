@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/auth/login-form";
 import type { AuthMethods } from "@/lib/api";
+import { safeNext } from "@/lib/safe-next";
 import { getSession } from "@/lib/session";
 
 export const metadata = { title: "Log in" };
@@ -17,8 +18,8 @@ async function getMethods(): Promise<AuthMethods | undefined> {
   }
 }
 
-export default async function LoginPage() {
-  if (await getSession()) redirect("/");
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
+  if (await getSession()) redirect(safeNext((await searchParams).next) ?? "/");
   const methods = await getMethods();
 
   return (

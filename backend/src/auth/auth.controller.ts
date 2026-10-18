@@ -21,6 +21,9 @@ import { ConfigService } from '@nestjs/config';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import type { User } from '../generated/prisma/client.js';
+import { actorFrom } from '../audit/actor.js';
+import { AuditService } from '../audit/audit.service.js';
+import { RbacService } from '../rbac/rbac.service.js';
 import { RequestOtpDto, VerifyOtpDto } from './dto/otp.dto.js';
 import {
   EmailChangeRequestDto,
@@ -32,7 +35,7 @@ import { OAuthError, OAuthService } from './oauth/oauth.service.js';
 import { OtpService } from './otp/otp.service.js';
 import { CurrentUser } from './session/current-user.decorator.js';
 import { SessionGuard } from './session/session.guard.js';
-import { SESSION_COOKIE, SessionService } from './session/session.service.js';
+import { RETURN_COOKIE, SESSION_COOKIE, SessionService } from './session/session.service.js';
 import { AVATAR_MAX_BYTES, processAvatar } from '../users/avatar.js';
 import { UsersService } from '../users/users.service.js';
 
@@ -46,6 +49,8 @@ export class AuthController {
     private readonly oauth: OAuthService,
     private readonly users: UsersService,
     private readonly config: ConfigService,
+    private readonly rbac: RbacService,
+    private readonly audit: AuditService,
   ) {}
 
   /** Tells the frontend which login methods to render. */
@@ -85,6 +90,7 @@ export class AuthController {
       providerUserId: destination,
       email: destination,
     });
+    await this.rbac.grantBootstrapAdmin(user);
     const session = await this.sessions.create(user.id, {
       remember: dto.remember,
       userAgent: req.get('user-agent'),
@@ -108,6 +114,7 @@ export class AuthController {
     const frontend = this.config.getOrThrow<string>('FRONTEND_URL').replace(/\/$/, '');
     try {
       const user = await this.oauth.complete(provider, req, res);
+      await this.rbac.grantBootstrapAdmin(user);
       const session = await this.sessions.create(user.id, {
         remember: true,
         userAgent: req.get('user-agent'),
@@ -126,8 +133,18 @@ export class AuthController {
   @Get('me')
   @SkipThrottle()
   @UseGuards(SessionGuard)
-  me(@CurrentUser() user: User) {
-    return { user: this.users.toPublicUser(user) };
+  async me(@CurrentUser() user: User, @Req() req: Request) {
+    const publicUser = this.users.toPublicUser(user);
+    if (!req.impersonatorId) return { user: publicUser };
+    // Only an impersonation session pays for this lookup.
+    const by = await this.users.findById(req.impersonatorId);
+    return {
+      user: publicUser,
+      impersonation: {
+        by: { id: req.impersonatorId, name: by?.name ?? null, email: by?.email ?? null },
+        expiresAt: req.sessionExpiresAt,
+      },
+    };
   }
 
   @Patch('me')
@@ -233,5 +250,34 @@ export class AuthController {
     const token = req.cookies?.[SESSION_COOKIE] as string | undefined;
     if (token) await this.sessions.revoke(token);
     this.sessions.clearCookie(res);
+    this.sessions.clearReturnCookie(res);
+  }
+
+  /** Ends an impersonation and puts the operator back in their own session. */
+  @Post('impersonation/stop')
+  @HttpCode(204)
+  @Throttle(MUTATION_LIMIT)
+  @UseGuards(SessionGuard)
+  async stopImpersonation(@CurrentUser() user: User, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const operatorId = req.impersonatorId;
+    if (!operatorId) throw new BadRequestException('Not impersonating.');
+    const operator = await this.users.findById(operatorId);
+    await this.sessions.revoke(req.sessionToken as string);
+    await this.audit.record(this.audit.db, { ...actorFrom(req), id: operatorId, email: operator?.email ?? null, name: operator?.name ?? null, impersonatorId: null }, {
+      action: 'user.impersonate.stop',
+      targetType: 'user',
+      targetId: user.id,
+      targetLabel: user.email ?? user.name,
+    });
+
+    // Restore the operator's own session only if the parked token is really theirs.
+    const parked = req.cookies?.[RETURN_COOKIE] as string | undefined;
+    const original = parked ? await this.sessions.validate(parked) : null;
+    if (original && original.userId === operatorId && !original.impersonatorId) {
+      this.sessions.setCookie(res, { token: parked as string, expiresAt: original.expiresAt, remember: true });
+    } else {
+      this.sessions.clearCookie(res);
+    }
+    this.sessions.clearReturnCookie(res);
   }
 }

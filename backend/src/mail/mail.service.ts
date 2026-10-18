@@ -31,4 +31,28 @@ export class MailService {
     });
     this.logger.log(`OTP email sent to ${to.replace(/(.{2}).*(@.*)/, '$1***$2')}`);
   }
+
+  async sendInvitation(opts: {
+    to: string;
+    orgName: string;
+    inviterName: string | null;
+    roleName: string;
+    link: string;
+    expiresAt: Date;
+  }) {
+    const { to, orgName, inviterName, roleName, link, expiresAt } = opts;
+    const who = inviterName ? `${esc(inviterName)} invited you` : 'You have been invited';
+    const until = expiresAt.toUTCString();
+    await this.transporter.sendMail({
+      from: this.from,
+      to,
+      subject: `You're invited to ${orgName} on Pabbar`,
+      text: `${inviterName ?? 'Someone'} invited you to join ${orgName} as ${roleName}.\n\nAccept: ${link}\n\nSign in with this email address (${to}). The invitation expires ${until}.`,
+      html: `<p>${who} to join <strong>${esc(orgName)}</strong> as <strong>${esc(roleName)}</strong>.</p><p><a href="${esc(link)}">Accept the invitation</a></p><p>Sign in with this email address (${esc(to)}). The invitation expires ${esc(until)}.</p>`,
+    });
+    this.logger.log(`Invitation email sent to ${to.replace(/(.{2}).*(@.*)/, '$1***$2')}`);
+  }
 }
+
+const esc = (s: string) =>
+  s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);

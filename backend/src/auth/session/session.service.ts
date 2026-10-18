@@ -7,6 +7,8 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { REDIS, type RedisClient } from '../../redis/redis.module.js';
 
 export const SESSION_COOKIE = 'pabbar_session';
+/** Holds the operator's own session token while they impersonate someone. */
+export const RETURN_COOKIE = 'pabbar_admin_return';
 const DAY_MS = 86_400_000;
 const TOUCH_INTERVAL_MS = 5 * 60_000;
 const CACHE_TTL_SECONDS = 45;
@@ -40,6 +42,8 @@ export interface ValidSession {
   userId: string;
   expiresAt: Date;
   user: User;
+  /** Set when this is an impersonation session. */
+  impersonatorId: string | null;
 }
 
 interface CachedSession {
@@ -47,6 +51,7 @@ interface CachedSession {
   userId: string;
   expiresAt: string;
   user: Record<string, unknown>;
+  impersonatorId?: string | null;
 }
 
 const DATE_FIELDS = ['emailVerifiedAt', 'phoneVerifiedAt', 'dateOfBirth', 'createdAt', 'updatedAt'];
@@ -88,11 +93,18 @@ export class SessionService {
   /** Creates a session and returns the raw token (only its hash is stored). */
   async create(
     userId: string,
-    opts: { remember?: boolean; userAgent?: string; ip?: string } = {},
+    opts: {
+      remember?: boolean;
+      userAgent?: string;
+      ip?: string;
+      /** Marks an impersonation session; it never outlives `ttlMs`. */
+      impersonatorId?: string;
+      ttlMs?: number;
+    } = {},
   ) {
     const token = randomBytes(32).toString('base64url');
     const days = opts.remember ? this.rememberTtlDays : this.ttlDays;
-    const expiresAt = new Date(Date.now() + days * DAY_MS);
+    const expiresAt = new Date(Date.now() + (opts.ttlMs ?? days * DAY_MS));
     await this.prisma.session.create({
       data: {
         userId,
@@ -100,6 +112,7 @@ export class SessionService {
         remember: !!opts.remember,
         userAgent: opts.userAgent?.slice(0, 255),
         ip: opts.ip,
+        impersonatorId: opts.impersonatorId,
         expiresAt,
       },
     });
@@ -133,6 +146,7 @@ export class SessionService {
       userId: session.userId,
       expiresAt: session.expiresAt,
       user: session.user,
+      impersonatorId: session.impersonatorId,
     };
     if (startedAt !== undefined) await this.cacheSet(hash, valid, startedAt);
     return valid;
@@ -235,7 +249,13 @@ export class SessionService {
       const expiresAt = new Date(c.expiresAt);
       if (expiresAt < new Date()) return { session: null, startedAt };
       return {
-        session: { id: c.id, userId: c.userId, expiresAt, user: reviveUser(c.user) },
+        session: {
+          id: c.id,
+          userId: c.userId,
+          expiresAt,
+          user: reviveUser(c.user),
+          impersonatorId: c.impersonatorId ?? null,
+        },
         startedAt,
       };
     } catch {
@@ -277,6 +297,34 @@ export class SessionService {
 
   clearCookie(res: Response) {
     res.clearCookie(SESSION_COOKIE, this.cookieOptions());
+  }
+
+  /** Browser-session cookie remembering the operator's real session. */
+  setReturnCookie(res: Response, token: string) {
+    res.cookie(RETURN_COOKIE, token, this.cookieOptions());
+  }
+
+  clearReturnCookie(res: Response) {
+    res.clearCookie(RETURN_COOKIE, this.cookieOptions());
+  }
+
+  /** Deletes every session of a user (suspension, forced sign-out). */
+  async revokeAll(userId: string) {
+    const { count } = await this.prisma.session.deleteMany({ where: { userId } });
+    await this.invalidateUser(userId);
+    return count;
+  }
+
+  /** Deletes one session by id; returns its owner, or null if it was gone. */
+  async revokeById(sessionId: string) {
+    const row = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: { userId: true },
+    });
+    if (!row) return null;
+    await this.prisma.session.deleteMany({ where: { id: sessionId } });
+    await this.invalidateUser(row.userId);
+    return row.userId;
   }
 
   private cookieOptions(): CookieOptions {

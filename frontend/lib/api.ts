@@ -49,6 +49,12 @@ export interface PublicUser {
 
 export type Gender = "MALE" | "FEMALE" | "OTHER";
 
+/** Present on /auth/me when a platform operator is viewing the app as this user. */
+export interface Impersonation {
+  by: { id: string; name: string | null; email: string | null };
+  expiresAt: string;
+}
+
 export interface SessionInfo {
   id: string;
   userAgent: string | null;
@@ -81,6 +87,7 @@ export const authApi = {
       body: JSON.stringify({ channel: "email", destination, code, remember }),
     }),
   logout: () => api<void>("/auth/logout", { method: "POST" }),
+  stopImpersonation: () => api<void>("/auth/impersonation/stop", { method: "POST" }),
   updateProfile: (data: ProfileUpdate) =>
     api<{ user: PublicUser }>("/auth/me", { method: "PATCH", body: JSON.stringify(data) }),
   uploadAvatar: (file: Blob) => {
